@@ -30,7 +30,7 @@ rootcode
 - 🔌 **Works with many models.** Anthropic, OpenAI, OpenRouter (hundreds of models), Ollama, or any server that speaks the OpenAI API format.
 - 🧭 **Three modes.** *Plan* explores your code read-only and proposes a plan for you to approve. *Approve* asks before each change. *Auto* just does the work.
 - 💾 **Sessions are saved** to a local SQLite file. Pick up where you left off with `rootcode -c`.
-- ✨ **Feels polished.** Live spinner showing the model's thinking, colored diffs before every edit, a slash-command menu with suggestions, and a status bar that shows the mode, model and how full the conversation is.
+
 
 ## See it work
 
