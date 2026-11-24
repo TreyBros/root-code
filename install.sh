@@ -1,8 +1,8 @@
 #!/bin/sh
-# Root installer: puts rootcode.py in ~/.rootcode and a `rootcode` command in ~/.local/bin.
-# Nothing else is installed: Root has no dependencies beyond Python 3.9+.
+# Root installer: builds Root into one file, ~/.rootcode/rootcode.pyz, and adds a `rootcode` command
+# in ~/.local/bin. Nothing else is installed: Root has no dependencies beyond Python 3.9+.
 set -e
-SOURCE="https://raw.githubusercontent.com/TreyBros/root-code/main/rootcode.py"
+REPO="https://github.com/TreyBros/root-code"
 DIR="$HOME/.rootcode"
 BIN="$HOME/.local/bin"
 
@@ -17,22 +17,25 @@ fi
 
 mkdir -p "$DIR" "$BIN"
 case "$0" in
-    *install.sh) [ -f "$(dirname "$0")/rootcode.py" ] && LOCAL="$(dirname "$0")/rootcode.py" ;;
+    *install.sh) [ -f "$(dirname "$0")/build.py" ] && SRC="$(cd "$(dirname "$0")" && pwd)" ;;
 esac
-if [ -n "$LOCAL" ]; then
-    cp "$LOCAL" "$DIR/rootcode.py"                     # running from a clone
-else
-    curl -fsSL "$SOURCE" -o "$DIR/rootcode.py"          # running from curl | sh
+if [ -z "$SRC" ]; then                              # running from curl | sh: fetch the source
+    TMP="$(mktemp -d)"
+    trap 'rm -rf "$TMP"' EXIT
+    curl -fsSL "$REPO/archive/refs/heads/main.tar.gz" | tar -xz -C "$TMP"
+    SRC="$TMP/root-code-main"
 fi
+python3 -I "$SRC/build.py" "$DIR/rootcode.pyz" >/dev/null
+rm -f "$DIR/rootcode.py"                            # the single-file version from before 1.1
 
 cat > "$BIN/rootcode" <<'LAUNCHER'
 #!/bin/sh
-exec python3 -I "$HOME/.rootcode/rootcode.py" "$@"
+exec python3 -I "$HOME/.rootcode/rootcode.pyz" "$@"
 LAUNCHER
 chmod +x "$BIN/rootcode"
 
 echo ""
-echo "  ✓ Root is installed."
+echo "  ✓ Root $(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import rootcode; print(rootcode.VERSION)' "$DIR/rootcode.pyz") is installed."
 case ":$PATH:" in
     *":$BIN:"*) echo "  Run it from any project folder:  rootcode" ;;
     *)  echo "  Add ~/.local/bin to your PATH first, then open a new terminal:"

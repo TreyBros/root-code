@@ -4,19 +4,20 @@
 
 # Root
 
-**A coding agent for your terminal in one Python file.**<br>
-No dependencies. Works with any model, running locally or in the cloud.
+**A small coding agent for your terminal.**<br>
+Pure Python, no dependencies, installs as one file. Works with any model, running locally or in the cloud.
 
 <a href="#install"><img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white"></a>
 <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-2ea44f">
-<img alt="One file" src="https://img.shields.io/badge/one%20file-~1.8k%20lines-555">
+<img alt="About 2.2k lines" src="https://img.shields.io/badge/code-~2.2k%20lines-555">
+<a href="https://github.com/TreyBros/root-code/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/TreyBros/root-code/actions/workflows/tests.yml/badge.svg"></a>
 <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
 
 </div>
 
 ---
 
-Root reads your code, runs commands, edits files and checks its own work, all from your terminal. It's one Python file that uses only the standard library, so there's nothing to install beyond Python. It works with **Ollama models on your own machine** and with **Anthropic, OpenAI or OpenRouter** in the cloud, and you can switch between them while it runs.
+Root reads your code, runs commands, edits files and checks its own work, all from your terminal. It's about 2,200 lines of Python that use only the standard library, so there's nothing to install beyond Python. It works with **Ollama models on your own machine** and with **Anthropic, OpenAI or OpenRouter** in the cloud, and you can switch between them while it runs.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/TreyBros/root-code/main/install.sh | sh
@@ -25,11 +26,12 @@ rootcode
 
 ## Why Root
 
-- 🪶 **Small.** One readable file, standard library only. No `pip install` and no virtualenv, so you can read all of it in an afternoon.
+- 🪶 **Small.** Standard library only, in 13 short files you can read in an afternoon. It installs as a single file, with no `pip install` and no virtualenv.
 - 🏠 **Local first.** Point it at Ollama, LM Studio or llama.cpp and your code stays on your machine. It's tuned for local models: compact tool output, a nudge when a model stalls, and a switch to turn thinking off for speed.
 - 🔌 **Works with many models.** Anthropic, OpenAI, OpenRouter (hundreds of models), Ollama, or any server that speaks the OpenAI API format.
 - 🧭 **Three modes.** *Plan* explores your code read-only and proposes a plan for you to approve. *Approve* asks before each change. *Auto* just does the work.
 - 💾 **Sessions are saved** to a local SQLite file. Pick up where you left off with `rootcode -c`.
+- 🧩 **Skills and custom commands.** Drop in `SKILL.md` folders (the same format Claude Code uses) or markdown files that become `/commands`.
 - 🕶️ **Incognito mode.** `/incognito` starts a conversation that never touches the disk. Leaving it wipes the conversation and the screen.
 
 ## See it work
@@ -48,7 +50,7 @@ A local model (`qwen3.8:27b` on Ollama) in plan mode. It finds why a test fails,
 curl -fsSL https://raw.githubusercontent.com/TreyBros/root-code/main/install.sh | sh
 ```
 
-This puts `rootcode.py` in `~/.rootcode/` and a `rootcode` command in `~/.local/bin/`. That's all it installs.
+This builds Root into one file, `~/.rootcode/rootcode.pyz`, and adds a `rootcode` command in `~/.local/bin/`. That's all it installs. Run the same line again to update.
 
 **Or from a clone:**
 
@@ -56,7 +58,7 @@ This puts `rootcode.py` in `~/.rootcode/` and a `rootcode` command in `~/.local/
 git clone https://github.com/TreyBros/root-code.git
 cd root-code
 ./install.sh            # installs the rootcode command
-python3 rootcode.py     # or just run it, no install needed
+python3 -m rootcode     # or just run it, no install needed
 ```
 
 You need Python 3.9 or newer. That includes the `python3` that ships with macOS.
@@ -125,6 +127,7 @@ Type <kbd>/</kbd> to open the command menu. It narrows as you type and suggests 
 | `/incognito` | Private conversation that is never saved; run it again to leave and wipe it |
 | `/compact` | Summarize the conversation to free up context |
 | `/init` | Have Root write a `ROOT.md` with notes on your project for future sessions |
+| `/skills` | List the skills Root can use in this folder |
 | `/help` · `/exit` | Show help · quit |
 
 ### Keys
@@ -137,6 +140,45 @@ Type <kbd>/</kbd> to open the command menu. It narrows as you type and suggests 
 | <kbd>Ctrl</kbd>+<kbd>A</kbd> <kbd>E</kbd> <kbd>U</kbd> <kbd>K</kbd> <kbd>W</kbd> | The usual line editing |
 | `\` then <kbd>Enter</kbd> | New line (pasting several lines also works) |
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> | Stop the model, or clear the line; twice on an empty line quits |
+
+## Skills and custom commands
+
+### Skills
+
+A skill is a folder of instructions for one kind of task. Root uses the same `SKILL.md` format as Claude Code and other agents, so skills you already have work as they are.
+
+```
+.root/skills/release-notes/SKILL.md
+```
+```markdown
+---
+name: release-notes
+description: Write release notes from the git history. Use when asked for release notes or a changelog.
+---
+1. Run `git log --oneline` since the last tag.
+2. Write NOTES.md with one plain-language bullet per change.
+```
+
+Root tells the model only each skill's name and description. When a task matches, the model loads the full instructions itself, so a long list of skills costs little context. That matters on local models. Other files in the skill's folder, like templates or scripts, are listed for the model to read when the instructions mention them.
+
+Root looks for skills in these folders. If two skills share a name, the earlier folder wins.
+
+| Folder | Applies to |
+|---|---|
+| `.root/skills/`, `.claude/skills/`, `.agents/skills/` | This project |
+| `~/.rootcode/skills/`, `~/.claude/skills/`, `~/.agents/skills/` | Every project |
+
+### Custom commands
+
+Any markdown file in `.root/commands/` (this project) or `~/.rootcode/commands/` (every project) becomes a slash command that sends the file to the model. `$ARGUMENTS` is replaced by whatever you type after the command. `.claude/commands/` folders work too.
+
+```markdown
+<!-- .root/commands/review.md  →  /review the auth module -->
+---
+description: review changes before I commit
+---
+Review $ARGUMENTS for bugs and missing tests. Run the tests. Don't change any files.
+```
 
 ## Tips for local models
 
@@ -178,7 +220,7 @@ Then pick `qwen-finetune-64k` in `/model`. If step 1 prints a long `TEMPLATE` bl
 
 Root is the simplest loop that works:
 
-1. Send the conversation and six tools to the model: `bash`, `read`, `write`, `edit`, `glob` and `todo`.
+1. Send the conversation and a few tools to the model: `bash`, `read`, `write`, `edit`, `glob`, `todo`, and `skill` when there are skills.
 2. Run whatever tools the model asks for and send back the results, including errors, as plain text.
 3. Repeat until the model replies without asking for a tool. That reply is the answer.
 
@@ -195,6 +237,8 @@ Everything else is about making that loop pleasant and reliable:
 | `sessions.db` | Saved conversations (SQLite). Readable only by you. |
 | `history.jsonl` | Your prompt history, for ↑ |
 | `log.jsonl` | Timing for each model call |
+| `skills/`, `commands/` | Your own skills and commands, for every project |
+| `rootcode.pyz` | Root itself |
 
 <details>
 <summary><b>All settings</b></summary>
@@ -215,6 +259,46 @@ Environment variables and flags override the saved settings.
 | `NO_COLOR` | | Turn colors off |
 
 </details>
+
+## Hack on it
+
+Root is a plain Python package with no dependencies:
+
+```
+rootcode/
+  settings.py   paths, saved config, flags, the shared state of a run
+  ui.py         colors, spinner, markdown
+  providers.py  Anthropic and OpenAI wire formats, model lists, errors
+  modes.py      approve / auto / plan, and which commands only read
+  tools.py      the tools the model calls: add one with @tool
+  skills.py     SKILL.md folders
+  agent.py      the loop
+  commands.py   /commands: add one with @command
+  connect.py    /model
+  sessions.py   SQLite sessions
+  screen.py     banner and status bar
+  editor.py     the input line and / menu
+  cli.py        startup and the main loop
+```
+
+Adding a tool is one function:
+
+```python
+@tool("word_count", "Count", "Count the words in a file.", {"path": {"type": "string"}}, ["path"])
+def word_count(path):
+    with open(path) as f:
+        return f"{len(f.read().split())} words"
+```
+
+Add `asks=True` if approve mode should ask before it runs, and `edits=True` if it changes files, so plan mode refuses it. A command works the same way, with `@command("/name", "what it does")`.
+
+```sh
+python3 -m rootcode       # run from the source
+python3 -m unittest       # the tests: a fake model server, no network or API keys needed
+python3 build.py          # build dist/rootcode.pyz
+```
+
+The tests run on Python 3.9 and 3.13, on macOS and Linux, for every push.
 
 ## Good to know
 
