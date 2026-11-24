@@ -136,6 +136,31 @@ Type <kbd>/</kbd> to open the command menu. It narrows as you type and suggests 
 - **Watch the spinner.** It shows the model's thoughts as they stream and says when the model is still reading a long conversation, so you can tell slow from stuck.
 - **Check the timings.** If something feels slow, `~/.rootcode/log.jsonl` records how long each model call took and how much of that was waiting for the first token.
 
+### Models that can't use tools
+
+Root needs a model that supports **tool calling**, because that's how it reads, edits and runs things. In `/model`, Ollama models without it are marked <code>no tools</code>, and Root's setup check catches them.
+
+Models pulled straight from Hugging Face (`ollama pull hf.co/…`) often ship a chat template with no tool support, even when the model underneath handles tools fine. If it's a fine-tune of a family Ollama already supports, such as Qwen or Gemma, give it the official model's template:
+
+```sh
+# 1. See how the official model of the same family formats tools
+ollama show --modelfile qwen3.6 | grep -E '^(TEMPLATE|RENDERER|PARSER|CAPABILITY)'
+
+# 2. Write a Modelfile that points at your download and reuses those lines
+cat > Modelfile <<'EOF'
+FROM hf.co/someone/Qwen-finetune-GGUF:Q4_K_M
+RENDERER qwen3.5          # ← the lines from step 1
+PARSER qwen3.5
+CAPABILITY tools
+PARAMETER num_ctx 65536
+EOF
+
+# 3. Create the fixed copy (reuses the same weights, no new download)
+ollama create qwen-finetune-64k -f Modelfile
+```
+
+Then pick `qwen-finetune-64k` in `/model`. If step 1 prints a long `TEMPLATE` block instead of `RENDERER`/`PARSER` lines, copy that block.
+
 ## How it works
 
 Root is the simplest loop that works:

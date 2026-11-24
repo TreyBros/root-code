@@ -543,6 +543,22 @@ def list_models(provider, key):
     if provider == "ollama":
         names = [m["name"] for m in get_json(ollama_host() + "/api/tags")["models"]]
         return [n for n in names if "embed" not in n]
+
+
+def without_tools(provider, models):
+    """Ollama models whose template can't do tool calls (Root needs them)."""
+    if provider != "ollama":
+        return set()
+    missing = set()
+    for name in models:
+        try:
+            show = http(ollama_host() + "/api/show", body={"model": name}, timeout=10, retries=0)
+            with show:
+                if "tools" not in (json.load(show).get("capabilities") or ["tools"]):
+                    missing.add(name)
+        except (ApiError, ValueError, OSError):
+            pass
+    return missing
     if provider == "openrouter":            # only models that can call tools
         data = get_json(base_url(provider) + "/models")["data"]
         return sorted(m["id"] for m in data if "tools" in (m.get("supported_parameters") or []))
@@ -1028,6 +1044,10 @@ def why(e):
         return "the API key was rejected. Check it and run /model again."
     if getattr(e, "status", None) == 404:
         return "not found (check the model name or server address)."
+    if "support tools" in str(e) or "tool" in str(e).lower() and getattr(e, "status", None) == 400:
+        return ("this model can't use tools, and Root needs them to read, edit and run things. "
+                "Pick a model with tool support. For an Ollama model imported from Hugging Face, see "
+                "\"Models that can't use tools\" in the README: it's usually a missing chat template.")
     return str(e)
 
 
@@ -1078,12 +1098,14 @@ def choose_model():
         print(f"  {RED}No models found.{hint}{RESET}")
         return
 
+    toolless = without_tools(provider, models)
     shown, model = models, None
     print(f"\n  {BOLD}Choose a model{RESET} {DIM}({len(models)} available){RESET}")
     while model is None:
         for i, name in enumerate(shown[:30], 1):
             current = f"  {ACCENT}● current{RESET}" if name == MODEL and provider == PROVIDER else ""
-            print(f"  {DIM}{i:>2}.{RESET} {name}{current}")
+            flag_ = f"  {YELLOW}no tools{RESET}" if name in toolless else ""
+            print(f"  {DIM}{i:>2}.{RESET} {name}{current}{flag_}")
         if len(shown) > 30:
             print(f"  {DIM}    … {len(shown) - 30} more: type part of a name to narrow the list{RESET}")
         answer = ask(f"  {ACCENT}❯{RESET} {DIM}[number, name or search; enter cancels]{RESET} ").strip()
@@ -1104,7 +1126,7 @@ def choose_model():
     spinner.start(f"Checking {model}", time.time())
     try:
         reply = chat(provider, key, model, "Reply with just: OK", [{"role": "user", "content": "Say OK"}],
-                     None, Quiet(), max_tokens=300)
+                     [t for t in TOOLS if t["name"] == "read"], Quiet(), max_tokens=300)
     except Exception as e:
         spinner.stop()
         print(f"  {RED}✗ That didn't work, nothing was changed: {why(e)}{RESET}")
@@ -1270,11 +1292,17 @@ def banner():
 def rule_text(note=""):
     pct = min(99, int(100 * last_usage[0] / max(compact_at(), 1)))
     colour, label, _ = MODE_LOOK[MODE]
-    info = f" {MODEL} · {PROVIDER}" + (f" · {pct}% context" if pct >= 1 else "") \
-        + (f" · think {think_level()}" if think_level() != "default" else "") + " "
-    w = min(width(), 120)
+    w = min(width(), 120) - 1           # one column spare: a full-width line can wrap in some terminals
+    extra = f" · {PROVIDER}" + (f" · {pct}% context" if pct >= 1 else "") \
+        + (f" · think {think_level()}" if think_level() != "default" else "")
+    model = MODEL.split("/")[-1] if len(MODEL) > 24 else MODEL      # hf.co/org/name:tag → name:tag
+    room = max(w - len(label) - len(extra) - 12, 8)
+    model = model if len(model) <= room else model[:room - 1] + "…"
+    info = f" {model}{extra} "
+    if len(info) + len(label) + 10 > w:  # a very narrow terminal: just the mode and the model
+        info = f" {model[:max(w - len(label) - 12, 1)]} "
     note = f" {note[:max(w - len(info) - len(label) - 12, 0)]} " if note else ""
-    left = max(w - len(info) - len(label) - len(note) - 6, 4)
+    left = max(w - len(info) - len(label) - len(note) - 6, 1)
     return f"{DIM}──{RESET} {colour}{label}{RESET}{GREY}{note}{RESET} {DIM}{'─' * left}{info}──{RESET}"
 
 
