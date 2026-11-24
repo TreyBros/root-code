@@ -9,7 +9,7 @@ No dependencies. Works with any model, running locally or in the cloud.
 
 <a href="#install"><img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white"></a>
 <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-2ea44f">
-<img alt="One file" src="https://img.shields.io/badge/one%20file-~1.6k%20lines-555">
+<img alt="One file" src="https://img.shields.io/badge/one%20file-~1.8k%20lines-555">
 <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
 
 </div>
@@ -30,7 +30,7 @@ rootcode
 - 🔌 **Works with many models.** Anthropic, OpenAI, OpenRouter (hundreds of models), Ollama, or any server that speaks the OpenAI API format.
 - 🧭 **Three modes.** *Plan* explores your code read-only and proposes a plan for you to approve. *Approve* asks before each change. *Auto* just does the work.
 - 💾 **Sessions are saved** to a local SQLite file. Pick up where you left off with `rootcode -c`.
-
+- 🕶️ **Incognito mode.** `/incognito` starts a conversation that never touches the disk. Leaving it wipes the conversation and the screen.
 
 ## See it work
 
@@ -87,6 +87,7 @@ API keys can also come from environment variables: `ANTHROPIC_API_KEY`, `OPENAI_
 rootcode                              # interactive
 rootcode "add type hints to utils.py" # one task, then exit
 rootcode --plan                       # start in plan mode
+rootcode --incognito                  # save nothing from this run
 rootcode -c                           # continue the last session in this folder
 rootcode --ollama --model=qwen3.6     # pick a provider and model for this run
 ```
@@ -99,6 +100,17 @@ rootcode --ollama --model=qwen3.6     # pick a provider and model for this run
 | **⏵⏵ auto** | Runs commands and makes edits without asking. Best for trusted tasks in a git repo. |
 | **⏸ plan** | Read-only. Explores the code, then writes a plan and asks: build it in auto mode, build it approving each change, or keep planning. You can also type feedback and it revises the plan. |
 
+### Incognito
+
+Type `/incognito` (or start with `rootcode --incognito`) for a conversation that leaves no trace. A **◐ incognito** tag shows in the status bar while it's on.
+
+- **Nothing is written to disk.** No saved session, no prompt history and no timing log. <kbd>↑</kbd> still recalls this conversation's prompts, from memory only.
+- **Your previous conversation is saved first,** so `/resume` can still bring it back.
+- **Leaving it wipes everything.** Run `/incognito` again: the conversation and its prompts are erased from memory, and the screen and scrollback are cleared.
+- **Prompts still go to the model.** With a cloud provider, they're sent to that provider. With Ollama or another local server, nothing leaves your machine.
+
+Settings you change with `/model` or `/think`, and files Root writes for you, are saved as usual.
+
 ### Commands
 
 Type <kbd>/</kbd> to open the command menu. It narrows as you type and suggests the rest; <kbd>Tab</kbd> accepts the suggestion and <kbd>Enter</kbd> runs the highlighted command.
@@ -110,6 +122,7 @@ Type <kbd>/</kbd> to open the command menu. It narrows as you type and suggests 
 | `/think off·low·medium·high` | How hard the model thinks. `off` makes local models much faster. |
 | `/resume` | Continue a saved session; add words to search titles |
 | `/clear` | Start a new conversation; the current one stays saved |
+| `/incognito` | Private conversation that is never saved; run it again to leave and wipe it |
 | `/compact` | Summarize the conversation to free up context |
 | `/init` | Have Root write a `ROOT.md` with notes on your project for future sessions |
 | `/help` · `/exit` | Show help · quit |
@@ -119,7 +132,7 @@ Type <kbd>/</kbd> to open the command menu. It narrows as you type and suggests 
 | Key | Does |
 |---|---|
 | <kbd>↑</kbd> <kbd>↓</kbd> | Earlier prompts (history is saved) |
-| <kbd>Shift</kbd>+<kbd>Tab</kbd> | Switch mode in place; your typed text stays |
+| <kbd>Shift</kbd>+<kbd>Tab</kbd> | Switch mode in place, even while Root is working; your typed text stays |
 | <kbd>Option</kbd>+<kbd>←</kbd>/<kbd>→</kbd> | Jump a word |
 | <kbd>Ctrl</kbd>+<kbd>A</kbd> <kbd>E</kbd> <kbd>U</kbd> <kbd>K</kbd> <kbd>W</kbd> | The usual line editing |
 | `\` then <kbd>Enter</kbd> | New line (pasting several lines also works) |
@@ -194,7 +207,7 @@ Environment variables and flags override the saved settings.
 | `ROOTCODE_MODEL` | `--model=…` | Model |
 | `ROOTCODE_THINK` | `--think=…` | Thinking level |
 | | `--plan` `--auto` | Starting mode |
-| | `-c` / `--continue`, `--resume` | Sessions |
+| | `-c` / `--continue`, `--resume`, `--incognito` | Sessions |
 | `ROOTCODE_BASE_URL` | | Send requests to a different address (for a proxy or gateway) |
 | `ROOTCODE_COMPACT_TOKENS` | | Context size that triggers a summary (default 140k for cloud models, 48k for Ollama, 24k for other local servers) |
 | `ROOTCODE_LOCAL_KEY` | | API key for a local server that needs one |

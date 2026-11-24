@@ -9,6 +9,7 @@ Root: a lightweight terminal coding agent in one file. Python 3.9+, no dependenc
     rootcode --auto                start in auto mode (no permission prompts)
     rootcode --continue  (or -c)   pick up the latest session in this folder
     rootcode --resume              choose a past session to continue
+    rootcode --incognito           nothing is saved: no session, no prompt history, no log
                                    default is approve mode: asks before commands and file changes.
                                    shift+tab or /mode switches modes while it runs.
     rootcode --ollama --model=qwen3.6          flags pick provider and model for one run
@@ -109,6 +110,7 @@ class Spinner:
     def __init__(self):
         self.on, self.thread, self.lock = False, None, threading.Lock()
         self.label, self.t0, self.chars, self.reading, self.preview = "", time.time(), 0, 0, ""
+        self.flash = ("", "", 0.0)     # (text, colour, until): e.g. the mode just switched to
 
     def start(self, label, t0=None):
         self.label = label
@@ -145,6 +147,9 @@ class Spinner:
         room = width() - len(self.label) - len(hint) - 7
         if room < 0:
             return line.split(" " + DIM)[0]
+        text, colour, until = self.flash
+        if until > time.time() and room > 12:
+            return line + f" {colour}{text[:room]}{RESET}"
         if self.preview and room > 12:   # what the model is thinking, newest words last
             line += f" {GREY}{'…' + self.preview[-(room - 2):] if len(self.preview) > room - 1 else self.preview}{RESET}"
         return line
@@ -210,7 +215,17 @@ class Markdown:
 
 def ask(prompt):
     """A short answer to a question: a number, y/n, a key."""
-    return input(prompt)
+    listening = KEYS is not None and KEYS.on
+    if listening:
+        KEYS.stop()                     # input() needs the keyboard while the question is open
+    try:
+        return input(prompt)
+    finally:
+        if listening:
+            KEYS.start()
+
+
+KEYS = None                             # the key listener that runs while the model works
 
 # ----------------------------------------------------------------------------
 # Providers: two wire formats cover all of them
@@ -307,6 +322,7 @@ def compact_at():
     return int(os.environ.get("ROOTCODE_COMPACT_TOKENS", PROVIDERS[PROVIDER]["ctx"]))
 
 
+INCOGNITO = "--incognito" in sys.argv    # nothing written to disk: no session, no prompt history, no log
 MODE = ("plan" if "--plan" in sys.argv
         else "auto" if "--auto" in sys.argv or "--yolo" in sys.argv else "approve")
 MODE_ORDER = ("approve", "auto", "plan")            # shift+tab cycles in this order
@@ -894,6 +910,8 @@ last_usage = [0]
 
 def log_call(entry):
     """One line per model call in ~/.rootcode/log.jsonl, for working out why something was slow."""
+    if INCOGNITO:
+        return
     try:
         os.makedirs(HOME_DIR, exist_ok=True)
         with open(LOG_PATH, "a", encoding="utf-8") as f:
@@ -1179,7 +1197,7 @@ class Sessions:
             print(f"  {YELLOW}Sessions won't be saved: {e}{RESET}")
 
     def save(self, messages):
-        if not self.db or not messages:
+        if INCOGNITO or not self.db or not messages:
             return
         turns = sum(1 for m in messages if m["role"] == "user" and isinstance(m.get("content"), str))
         row = (time.time(), turns, PROVIDER, MODEL, json.dumps(messages), json.dumps(todos))
@@ -1263,6 +1281,7 @@ COMMANDS = {"/help": "show this help",
             "/think": "how hard the model thinks: off, low, medium, high, default",
             "/resume": "continue a saved session (add words to search titles)",
             "/clear": "start a new conversation (the current one stays saved)",
+            "/incognito": "private conversation: nothing saved; leaving it wipes the screen",
             "/compact": "summarize the conversation to free context",
             "/init": "write ROOT.md: notes on this project for future sessions",
             "/exit": "quit (also /quit, ctrl+d)", "/quit": "quit"}
@@ -1286,7 +1305,12 @@ def banner():
     print(f"  {GREY}cwd{RESET}    {tidy_path(os.getcwd())}")
     colour, label, about = MODE_LOOK[MODE]
     print(f"  {GREY}mode{RESET}   {colour}{label}{RESET} {DIM}· {about}{RESET}")
-    print(f"\n  {DIM}shift+tab switches modes · /resume continues a past session · /help for commands{RESET}")
+    if INCOGNITO:
+        print(f"  {INCOG_COLOUR}◐ incognito{RESET} {DIM}· nothing from this conversation is saved{RESET}")
+    print(f"\n  {DIM}shift+tab switches modes · /resume past sessions · /incognito saves nothing · /help{RESET}")
+
+
+INCOG_COLOUR = fg(177)
 
 
 def rule_text(note=""):
@@ -1301,9 +1325,11 @@ def rule_text(note=""):
     info = f" {model}{extra} "
     if len(info) + len(label) + 10 > w:  # a very narrow terminal: just the mode and the model
         info = f" {model[:max(w - len(label) - 12, 1)]} "
-    note = f" {note[:max(w - len(info) - len(label) - 12, 0)]} " if note else ""
-    left = max(w - len(info) - len(label) - len(note) - 6, 1)
-    return f"{DIM}──{RESET} {colour}{label}{RESET}{GREY}{note}{RESET} {DIM}{'─' * left}{info}──{RESET}"
+    tag = " ◐ incognito" if INCOGNITO and len(info) + len(label) + 24 <= w else ""
+    note = f" {note[:max(w - len(info) - len(label) - len(tag) - 12, 0)]} " if note else ""
+    left = max(w - len(info) - len(label) - len(tag) - len(note) - 6, 1)
+    return (f"{DIM}──{RESET} {colour}{label}{RESET}{INCOG_COLOUR}{tag}{RESET}{GREY}{note}{RESET} "
+            f"{DIM}{'─' * left}{info}──{RESET}")
 
 
 class Prompt:
@@ -1312,7 +1338,7 @@ class Prompt:
     shift+tab for modes and ctrl+c to clear. Falls back to input() where there is no terminal."""
 
     def __init__(self):
-        self.history, self.drawn, self.buf, self.pos, self.note = [], 0, "", 0, ""
+        self.history, self.drawn, self.buf, self.pos, self.note, self.private = [], 0, "", 0, "", []
         try:
             with open(HISTORY_PATH, encoding="utf-8") as f:
                 self.history = [json.loads(line) for line in f][-500:]
@@ -1323,6 +1349,9 @@ class Prompt:
         if not text or (self.history and self.history[-1] == text):
             return
         self.history.append(text)
+        if INCOGNITO:                       # ↑ still works this session; nothing reaches the file
+            self.private.append(text)
+            return
         try:
             os.makedirs(HOME_DIR, exist_ok=True)
             with open(HISTORY_PATH, "a", encoding="utf-8") as f:
@@ -1330,7 +1359,7 @@ class Prompt:
         except OSError:
             pass
 
-    def read(self):
+    def read(self, typed=""):
         if not (termios and TTY and sys.stdin.isatty()):
             print("\n" + rule_text())
             lines = [input(f"{BOLD}{MODE_LOOK[MODE][0]}❯{RESET} ")]
@@ -1340,7 +1369,7 @@ class Prompt:
             return "\n".join(lines).strip()
         fd = sys.stdin.fileno()
         saved = termios.tcgetattr(fd)
-        self.buf, self.pos, self.note, self.drawn, self.spot, self.draft = "", 0, "", 0, len(self.history), ""
+        self.buf, self.pos, self.note, self.drawn, self.spot, self.draft = typed, len(typed), "", 0, len(self.history), ""
         self.sel, self.hidden, self.final = 0, False, False
         armed = False                   # ctrl+c once clears; again on an empty line quits
         sys.stdout.write("\n\033[?2004h")               # bracketed paste: a paste arrives as one block
@@ -1557,6 +1586,80 @@ class Prompt:
         sys.stdout.flush()
 
 
+class Keys:
+    """While the model works: shift+tab switches modes right away, and anything else typed is kept for
+    the next prompt instead of being echoed over the output. ctrl+c still interrupts."""
+
+    def __init__(self, prompt):
+        self.prompt, self.on, self.thread, self.saved, self.typed = prompt, False, None, None, ""
+
+    def start(self):
+        if self.on or not (termios and TTY and sys.stdin.isatty()):
+            return
+        fd = sys.stdin.fileno()
+        self.saved = termios.tcgetattr(fd)
+        quiet = termios.tcgetattr(fd)
+        quiet[3] &= ~(termios.ICANON | termios.ECHO)    # one key at a time, no echo; ctrl+c still signals
+        termios.tcsetattr(fd, termios.TCSANOW, quiet)
+        self.on = True
+        self.thread = threading.Thread(target=self.listen, args=(fd,), daemon=True)
+        self.thread.start()
+
+    def listen(self, fd):
+        while self.on:
+            if not select.select([fd], [], [], 0.1)[0] or not self.on:
+                continue
+            key = self.prompt.key(fd)
+            if key == "esc [Z":
+                set_mode(MODE_ORDER[(MODE_ORDER.index(MODE) + 1) % len(MODE_ORDER)], quiet=True)
+                colour, label, about = MODE_LOOK[MODE]
+                spinner.flash = (f"→ {label} · {about}", colour, time.time() + 4)
+            elif isinstance(key, tuple):
+                self.typed += key[1]
+            elif key in ("\x7f", "\x08"):
+                self.typed = self.typed[:-1]
+            elif isinstance(key, str) and len(key) == 1 and key >= " ":
+                self.typed += key
+
+    def stop(self):
+        if not self.on:
+            return
+        self.on = False
+        self.thread.join()
+        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, self.saved)
+
+
+def incognito(prompt, messages, sessions, line):
+    """Like a private browser window: a fresh conversation that never touches the disk. Leaving it
+    forgets the conversation and its prompts, and wipes the screen and scrollback."""
+    global INCOGNITO
+    arg = prompt.split()[1].lower() if len(prompt.split()) > 1 else ""
+    turn_on = {"on": True, "off": False}.get(arg, not INCOGNITO)
+    if turn_on == INCOGNITO:
+        print(f"  {DIM}Incognito is already {'on' if INCOGNITO else 'off'}.{RESET}")
+        return
+    sessions.save(messages)             # a normal conversation is kept before going private
+    messages.clear()
+    todos.clear()
+    last_usage[0], sessions.id = 0, None
+    if turn_on:
+        INCOGNITO = True
+        print(f"\n  {INCOG_COLOUR}◐ Incognito{RESET} {DIM}· a new conversation that is never saved{RESET}")
+        print(f"  {DIM}  no session, no prompt history, no log · your last conversation is saved{RESET}")
+        if PROVIDER not in ("ollama", "local"):
+            print(f"  {DIM}  prompts still go to {PROVIDERS[PROVIDER]['label']}; pick Ollama in /model for fully"
+                  f" offline{RESET}")
+        print(f"  {DIM}  /incognito again to leave: it wipes this conversation and the screen{RESET}")
+    else:
+        INCOGNITO = False
+        line.history = [h for h in line.history if h not in line.private]
+        line.private.clear()
+        if TTY:
+            sys.stdout.write("\x1b[H\x1b[2J\x1b[3J")   # clear the screen and the scrollback
+            banner()
+        print(f"\n  {DIM}✻ Left incognito · that conversation is gone. Back to a new, saved one.{RESET}")
+
+
 def main():
     global MODEL
     client["key"] = api_key(PROVIDER)
@@ -1566,7 +1669,9 @@ def main():
         except Exception:
             pass
     task = " ".join(a for a in sys.argv[1:] if not a.startswith("--") and a != "-c")
+    global KEYS
     messages, sessions, line = [], Sessions(), Prompt()
+    KEYS = Keys(line)
     trim_log()
     first_run = not os.path.exists(CONFIG_PATH) and not task and not flag("provider") \
         and not any(f"--{p}" in sys.argv for p in PROVIDERS) and not os.environ.get("ROOTCODE_PROVIDER")
@@ -1595,7 +1700,7 @@ def main():
             else:
                 one_shot = False
                 try:
-                    prompt = line.read()
+                    prompt, KEYS.typed = line.read(KEYS.typed), ""
                 except (EOFError, KeyboardInterrupt):
                     print()
                     return
@@ -1611,7 +1716,10 @@ def main():
                     messages.clear()
                     todos.clear()
                     last_usage[0], sessions.id = 0, None
-                    print(f"  {DIM}✻ New conversation · the last one is saved, /resume brings it back{RESET}")
+                    print(f"  {DIM}✻ New conversation · " + ("still incognito, nothing saved" if INCOGNITO
+                          else "the last one is saved, /resume brings it back") + RESET)
+                elif command == "/incognito":
+                    incognito(prompt, messages, sessions, line)
                 elif command == "/resume":
                     try:
                         pick_session(sessions, messages, prompt[len("/resume"):].strip())
@@ -1649,7 +1757,7 @@ def main():
                     for name, text in COMMANDS.items():
                         if name != "/quit":
                             print(f"  {ACCENT}{name:<10}{RESET} {DIM}{text}{RESET}")
-                    print(f"  {DIM}ctrl+c interrupts · ctrl+d quits · ↑ recalls earlier prompts{RESET}")
+                    print(f"  {DIM}shift+tab switches modes, even while Root works · ctrl+c interrupts · ctrl+d quits{RESET}")
                 if one_shot:
                     return
                 continue
@@ -1662,6 +1770,7 @@ def main():
             if not one_shot:
                 print()
             messages.append({"role": "user", "content": (PLAN_NOTE if MODE == "plan" else "") + prompt})
+            KEYS.start()
             try:
                 run_turn(messages)
             except KeyboardInterrupt:           # interrupted while the model was writing
@@ -1673,11 +1782,15 @@ def main():
             except (ValueError, KeyError) as e:  # a malformed stream from a provider
                 spinner.stop()
                 print(f"\n  {RED}✗ Unexpected reply from {PROVIDER}: {e}{RESET}")
+            finally:
+                KEYS.stop()
             sessions.save(messages)
             if one_shot:
                 return
     finally:
         spinner.stop()
+        if KEYS:
+            KEYS.stop()
 
 
 if __name__ == "__main__":
